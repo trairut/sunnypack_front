@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Settings, User, Lock, Package, Menu, BoxIcon, MapPin } from 'lucide-react';
+import { LayoutDashboard, Settings, User, Lock, BoxIcon, MapPin, Users } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -13,11 +13,13 @@ import {
   SidebarHeader,
   useSidebar,
 } from '@/components/ui/sidebar';
+import logo from '@/assets/logo.png';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
   { icon: BoxIcon, label: 'Material Master', path: '/material-master' },
   { icon: MapPin, label: 'Location Master', path: '/location-master' },
+  { icon: Users, label: 'User Management', path: '/user-management' },
   { icon: Settings, label: 'API Management', path: '/api-management' },
   { icon: User, label: 'Profile', path: '/profile' },
   { icon: Lock, label: 'Change Password', path: '/change-password' },
@@ -31,12 +33,10 @@ export function AppSidebar() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-sidebar-background">
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-gradient-to-b from-slate-100 via-sky-100/70 to-indigo-100/60 dark:from-sidebar-background dark:via-sidebar-background dark:to-sidebar-background">
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-elegant flex-shrink-0">
-            <Package className="w-6 h-6 text-white" />
-          </div>
+          <img src={logo} alt="Sunnypack logo" className="w-10 h-10 rounded-xl shadow-elegant flex-shrink-0 object-cover" />
           {!isCollapsed && (
             <div className="flex-1 min-w-0">
               <h1 className="text-lg font-bold text-sidebar-foreground truncate">SUNNYPACK</h1>

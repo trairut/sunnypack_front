@@ -14,6 +14,7 @@ import ApiManagement from "./pages/ApiManagement";
 import MaterialMaster from "./pages/MaterialMaster";
 import LocationMaster from "./pages/LocationMaster";
 import NotFound from "./pages/NotFound";
+import UserManagement from "./pages/UserManagement";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +39,7 @@ const App = () => (
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="material-master" element={<MaterialMaster />} />
               <Route path="location-master" element={<LocationMaster />} />
+              <Route path="user-management" element={<UserManagement />} />
               <Route path="profile" element={<Profile />} />
               <Route path="change-password" element={<ChangePassword />} />
               <Route path="api-management" element={<ApiManagement />} />

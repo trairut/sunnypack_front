@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Package } from 'lucide-react';
 import { toast } from 'sonner';
+import logo from '@/assets/logo.png';
 
 const Auth = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -20,13 +21,24 @@ const Auth = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (username && password) {
-      login(username, password);
-      toast.success('เข้าสู่ระบบสำเร็จ!');
-    } else {
-      toast.error('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
+    const trimmedUsername = username.trim();
+
+    if (!trimmedUsername || !password) {
+      toast.error('Please enter both username and password.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await login(trimmedUsername, password);
+      toast.success('Signed in successfully.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to sign in.';
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -34,8 +46,8 @@ const Auth = () => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-primary shadow-elegant mb-4">
-            <Package className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white/90 shadow-elegant mb-4 border border-sky-100">
+            <img src={logo} alt="Sunnypack logo" className="h-30 w-auto object-contain drop-shadow" />
           </div>
           <h1 className="text-3xl font-bold text-foreground mb-2">SUNNYPACK</h1>
           <p className="text-muted-foreground">WMS Fulfillment System</p>
@@ -43,40 +55,45 @@ const Auth = () => {
 
         <Card className="shadow-card">
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl">เข้าสู่ระบบ</CardTitle>
-            <CardDescription>กรอกชื่อผู้ใช้และรหัสผ่านเพื่อเข้าสู่ระบบ</CardDescription>
+            <CardTitle className="text-2xl">Sign In</CardTitle>
+            <CardDescription>Enter your credentials to access the fulfillment console.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">ชื่อผู้ใช้</Label>
+                <Label htmlFor="username">Username</Label>
                 <Input
                   id="username"
                   type="text"
-                  placeholder="กรอกชื่อผู้ใช้"
+                  placeholder="Enter your username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
                   className="h-11"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">รหัสผ่าน</Label>
+                <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="กรอกรหัสผ่าน"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
                   className="h-11"
                 />
               </div>
-              <Button type="submit" className="w-full h-11 font-medium">
-                เข้าสู่ระบบ
+              <Button type="submit" className="w-full h-11 font-medium" disabled={isLoading}>
+                {isLoading ? 'Verifying...' : 'Sign In'}
               </Button>
               <div className="text-xs text-center text-muted-foreground mt-4 p-3 bg-muted rounded-lg">
-                <p className="font-medium mb-1">💡 สำหรับ Demo</p>
-                {/* <p>ใส่ username/password อะไรก็ได้เพื่อเข้าสู่ระบบ</p>
-                <p className="mt-1">ใช้ "admin" ในชื่อผู้ใช้เพื่อเป็น Admin</p> */}
+                <p className="font-medium mb-1">Demo Accounts</p>
+                <p>You can use the seeded credentials that ship with the backend database.</p>
+                <p className="mt-1">
+                  Example:&nbsp;
+                  <strong>admin</strong> / <strong>admin123</strong>
+                </p>
               </div>
             </form>
           </CardContent>

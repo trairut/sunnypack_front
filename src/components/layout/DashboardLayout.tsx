@@ -7,7 +7,7 @@ import Header from './Header';
 const DashboardLayout = () => {
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background">
+      <div className="flex min-h-screen w-full bg-gradient-to-br from-slate-100 via-sky-100/60 to-indigo-100/70 dark:from-background dark:via-background dark:to-background">
         <AppSidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
           <Header />
