@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Settings, User, Lock, BoxIcon, MapPin, Users } from 'lucide-react';
 import {
@@ -14,21 +14,23 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import logo from '@/assets/logo.png';
-
-const menuItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-  { icon: BoxIcon, label: 'Material Master', path: '/material-master' },
-  { icon: MapPin, label: 'Location Master', path: '/location-master' },
-  { icon: Users, label: 'User Management', path: '/user-management' },
-  { icon: Settings, label: 'API Management', path: '/api-management' },
-  { icon: User, label: 'Profile', path: '/profile' },
-  { icon: Lock, label: 'Change Password', path: '/change-password' },
-];
+import { useAuth } from '@/contexts/AuthContext';
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
   const isCollapsed = state === 'collapsed';
+  const { user } = useAuth();
+
+  const menuItems = useMemo(() => [
+    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
+    { icon: BoxIcon, label: 'Material Master', path: '/material-master' },
+    { icon: MapPin, label: 'Location Master', path: '/location-master', hidden: user?.user_type === 'company' },
+    { icon: Users, label: 'User Management', path: '/user-management' },
+    { icon: Settings, label: 'API Management', path: '/api-management' },
+    { icon: User, label: 'Profile', path: '/profile' },
+    { icon: Lock, label: 'Change Password', path: '/change-password' },
+  ], [user?.user_type]);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -55,7 +57,7 @@ export function AppSidebar() {
           )}
           <SidebarGroupContent>
             <SidebarMenu className="gap-1 px-2">
-              {menuItems.map((item) => {
+              {menuItems.filter((item) => !item.hidden).map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.path);
                 return (

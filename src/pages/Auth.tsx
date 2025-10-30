@@ -92,7 +92,7 @@ const Auth = () => {
                 <p>You can use the seeded credentials that ship with the backend database.</p>
                 <p className="mt-1">
                   Example:&nbsp;
-                  <strong>admin</strong> / <strong>admin123</strong>
+                  <strong>warehouse_admin</strong> / <strong>admin123</strong>
                 </p>
               </div>
             </form>
