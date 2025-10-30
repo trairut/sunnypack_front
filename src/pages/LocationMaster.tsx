@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { Plus, Search, Edit, Trash2, MapPin } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Plus, Search, Edit, Trash2, RefreshCw, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -30,336 +30,506 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext';
+
+const API_BASE_URL = (() => {
+  const raw = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+  return raw.replace(/\/+$/, '');
+})();
 
 interface Location {
-  id: string;
+  id: number;
+  location_code: string;
+  zone?: string | null;
+  area?: string | null;
+  rack?: string | null;
+  level?: string | null;
+  position?: string | null;
+  is_active: boolean;
+  warehouse_id: number;
+  created_at?: string | null;
+}
+
+interface FormState {
   locationCode: string;
   zone: string;
   area: string;
   rack: string;
   level: string;
   position: string;
-  status: 'active' | 'inactive' | 'maintenance';
+  isActive: boolean;
 }
 
-const mockLocations: Location[] = [
-  {
-    id: '1',
-    locationCode: '1AP_A10204',
-    zone: '1',
-    area: 'AP',
-    rack: 'A102',
-    level: '04',
-    position: 'A',
-    status: 'active',
-  },
-  {
-    id: '2',
-    locationCode: '1AP_A20205',
-    zone: '1',
-    area: 'AP',
-    rack: 'A202',
-    level: '05',
-    position: 'B',
-    status: 'active',
-  },
-  {
-    id: '3',
-    locationCode: '1AR_B10101',
-    zone: '1',
-    area: 'AR',
-    rack: 'B101',
-    level: '01',
-    position: 'A',
-    status: 'active',
-  },
-  {
-    id: '4',
-    locationCode: '1AR_B10102',
-    zone: '1',
-    area: 'AR',
-    rack: 'B101',
-    level: '02',
-    position: 'B',
-    status: 'active',
-  },
-  {
-    id: '5',
-    locationCode: '1CR_D30401',
-    zone: '1',
-    area: 'CR',
-    rack: 'D304',
-    level: '01',
-    position: 'A',
-    status: 'maintenance',
-  },
-  {
-    id: '6',
-    locationCode: '2AP_A10204',
-    zone: '2',
-    area: 'AP',
-    rack: 'A102',
-    level: '04',
-    position: 'A',
-    status: 'active',
-  },
-];
+const INITIAL_FORM_STATE: FormState = {
+  locationCode: '',
+  zone: '',
+  area: '',
+  rack: '',
+  level: '',
+  position: '',
+  isActive: true,
+};
 
-const LocationMaster = () => {
-  const [locations, setLocations] = useState<Location[]>(mockLocations);
+const LocationMaster: React.FC = () => {
+  const { toast } = useToast();
+  const { token, user } = useAuth();
+
+  const [locations, setLocations] = useState<Location[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
-  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [formData, setFormData] = useState<FormState>(INITIAL_FORM_STATE);
 
-  const [formData, setFormData] = useState({
-    locationCode: '',
-    zone: '',
-    area: '',
-    rack: '',
-    level: '',
-    position: '',
-    status: 'active' as Location['status'],
-  });
+  const isWarehouseUser = user?.user_type === 'warehouse';
+  const warehouseId = user?.warehouse_id ?? null;
+  const canManageLocations = isWarehouseUser && warehouseId !== null;
 
-  const filteredLocations = locations.filter(
-    (location) =>
-      location.locationCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      location.zone.includes(searchTerm) ||
-      location.area.toLowerCase().includes(searchTerm.toLowerCase())
+  const showErrorToast = useCallback(
+    (description: string, title = 'Error') => {
+      toast({
+        variant: 'destructive',
+        title,
+        description,
+      });
+    },
+    [toast]
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (editingLocation) {
-      setLocations(
-        locations.map((l) =>
-          l.id === editingLocation.id ? { ...formData, id: l.id } : l
-        )
-      );
+  const showSuccessToast = useCallback(
+    (description: string, title = 'Success') => {
       toast({
-        title: 'อัปเดตสำเร็จ',
-        description: 'ข้อมูลตำแหน่งถูกอัปเดตเรียบร้อยแล้ว',
+        title,
+        description,
       });
-    } else {
-      const newLocation: Location = {
-        ...formData,
-        id: Date.now().toString(),
-      };
-      setLocations([...locations, newLocation]);
-      toast({
-        title: 'เพิ่มสำเร็จ',
-        description: 'เพิ่มข้อมูลตำแหน่งเรียบร้อยแล้ว',
-      });
+    },
+    [toast]
+  );
+
+  const resetForm = useCallback(() => {
+    setFormData({ ...INITIAL_FORM_STATE });
+    setEditingLocation(null);
+  }, []);
+
+  const fetchLocations = useCallback(async () => {
+    if (!token) {
+      return;
     }
 
-    resetForm();
-    setIsDialogOpen(false);
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/location/`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const message =
+          body?.detail || 'Unable to load locations. Please try again.';
+        throw new Error(message);
+      }
+
+      const data: Location[] = await response.json();
+      setLocations(
+        data.sort((a, b) => a.location_code.localeCompare(b.location_code))
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unexpected error while loading locations.';
+      showErrorToast(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token, showErrorToast]);
+
+  useEffect(() => {
+    fetchLocations();
+  }, [fetchLocations]);
+
+  const filteredLocations = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return locations;
+    }
+
+    const term = searchTerm.trim().toLowerCase();
+    return locations.filter((location) => {
+      return (
+        location.location_code.toLowerCase().includes(term) ||
+        location.zone?.toLowerCase().includes(term) ||
+        location.area?.toLowerCase().includes(term) ||
+        location.rack?.toLowerCase().includes(term) ||
+        location.level?.toLowerCase().includes(term) ||
+        location.position?.toLowerCase().includes(term)
+      );
+    });
+  }, [locations, searchTerm]);
+
+  const handleDialogToggle = (open: boolean) => {
+    if (open && !canManageLocations) {
+      showErrorToast('Only warehouse users can create or edit locations.');
+      return;
+    }
+
+    if (!open) {
+      resetForm();
+    }
+
+    setIsDialogOpen(open);
   };
 
   const handleEdit = (location: Location) => {
+    if (!canManageLocations) {
+      return;
+    }
+
     setEditingLocation(location);
     setFormData({
-      locationCode: location.locationCode,
-      zone: location.zone,
-      area: location.area,
-      rack: location.rack,
-      level: location.level,
-      position: location.position,
-      status: location.status,
+      locationCode: location.location_code,
+      zone: location.zone ?? '',
+      area: location.area ?? '',
+      rack: location.rack ?? '',
+      level: location.level ?? '',
+      position: location.position ?? '',
+      isActive: location.is_active,
     });
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    setLocations(locations.filter((l) => l.id !== id));
-    toast({
-      title: 'ลบสำเร็จ',
-      description: 'ลบข้อมูลตำแหน่งเรียบร้อยแล้ว',
-      variant: 'destructive',
-    });
+  const handleDelete = async (locationId: number) => {
+    if (!canManageLocations) {
+      return;
+    }
+
+    if (!token) {
+      showErrorToast('Please sign in to continue.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/location/${locationId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const message = body?.detail || 'Unable to delete the location.';
+        throw new Error(message);
+      }
+
+      setLocations((current) =>
+        current.filter((location) => location.id !== locationId)
+      );
+      showSuccessToast('Location deleted successfully.');
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unexpected error while deleting.';
+      showErrorToast(message);
+    }
   };
 
-  const resetForm = () => {
-    setFormData({
-      locationCode: '',
-      zone: '',
-      area: '',
-      rack: '',
-      level: '',
-      position: '',
-      status: 'active',
-    });
-    setEditingLocation(null);
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!token) {
+      showErrorToast('Please sign in to continue.');
+      return;
+    }
+
+    if (!formData.locationCode.trim()) {
+      showErrorToast('Please enter a location code.');
+      return;
+    }
+
+    if (!canManageLocations) {
+      showErrorToast('Only warehouse users can manage locations.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      if (editingLocation) {
+        if (formData.locationCode.trim() !== editingLocation.location_code) {
+          showErrorToast(
+            'Location code cannot be changed. Please create a new location instead.'
+          );
+          return;
+        }
+
+        const payload = {
+          zone: formData.zone.trim() || null,
+          area: formData.area.trim() || null,
+          rack: formData.rack.trim() || null,
+          level: formData.level.trim() || null,
+          position: formData.position.trim() || null,
+          is_active: formData.isActive,
+        };
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/location/${editingLocation.id}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          }
+        );
+
+        if (!response.ok) {
+          const responseBody = await response.json().catch(() => null);
+          const message =
+            responseBody?.detail || 'Unable to update the location.';
+          throw new Error(message);
+        }
+
+        const updated: Location = await response.json();
+        setLocations((current) =>
+          current
+            .map((item) => (item.id === updated.id ? updated : item))
+            .sort((a, b) => a.location_code.localeCompare(b.location_code))
+        );
+        showSuccessToast('Location updated successfully.');
+      } else {
+        if (!warehouseId) {
+          throw new Error(
+            'Warehouse information is required to create a location.'
+          );
+        }
+
+        const createBody = {
+          location_code: formData.locationCode.trim(),
+          zone: formData.zone.trim() || null,
+          area: formData.area.trim() || null,
+          rack: formData.rack.trim() || null,
+          level: formData.level.trim() || null,
+          position: formData.position.trim() || null,
+          warehouse_id: warehouseId,
+          is_active: formData.isActive,
+        };
+
+        const response = await fetch(`${API_BASE_URL}/api/location/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(createBody),
+        });
+
+        if (!response.ok) {
+          const responseBody = await response.json().catch(() => null);
+          const message =
+            responseBody?.detail || 'Unable to create the location.';
+          throw new Error(message);
+        }
+
+        const created: Location = await response.json();
+        setLocations((current) =>
+          [created, ...current].sort((a, b) =>
+            a.location_code.localeCompare(b.location_code)
+          )
+        );
+        showSuccessToast('Location created successfully.');
+      }
+
+      setIsDialogOpen(false);
+      resetForm();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unexpected error while saving location.';
+      showErrorToast(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const getStatusBadge = (status: Location['status']) => {
-    const variants: Record<Location['status'], { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
-      active: { variant: 'default', label: 'ใช้งาน' },
-      inactive: { variant: 'secondary', label: 'ไม่ใช้งาน' },
-      maintenance: { variant: 'destructive', label: 'ซ่อมบำรุง' },
-    };
-    
+  const getStatusBadge = (isActive: boolean) => {
+    if (isActive) {
+      return (
+        <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-emerald-700">
+          Active
+        </Badge>
+      );
+    }
+
     return (
-      <Badge variant={variants[status].variant}>
-        {variants[status].label}
+      <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-600">
+        Inactive
       </Badge>
     );
   };
 
+  const modalTitle = editingLocation ? 'Edit location' : 'Add location';
+  const modalDescription = editingLocation
+    ? 'Update zone, rack, or availability for this storage location.'
+    : 'Create a new storage location and configure its availability.';
+  const submitLabel = editingLocation ? 'Save changes' : 'Create location';
+
   return (
     <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-primary flex items-center justify-center shadow-elegant">
-            <MapPin className="w-5 h-5 md:w-6 md:h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-foreground">Location Master</h1>
-            <p className="text-xs md:text-sm text-muted-foreground">จัดการรหัสตำแหน่งจัดเก็บสินค้า</p>
-          </div>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-xl md:text-2xl font-bold text-foreground flex items-center gap-2">
+            <MapPin className="h-6 w-6 text-primary" />
+            Location Master
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Manage warehouse locations, track availability, and keep your storage map up to date.
+          </p>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => resetForm()} className="w-full sm:w-auto">
-              <Plus className="w-4 h-4 mr-2" />
-              เพิ่มตำแหน่ง
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {editingLocation ? 'แก้ไขข้อมูลตำแหน่ง' : 'เพิ่มข้อมูลตำแหน่ง'}
-              </DialogTitle>
-              <DialogDescription>
-                กรอกข้อมูลตำแหน่งจัดเก็บให้ครบถ้วน
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit}>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="locationCode">Location Code</Label>
-                  <Input
-                    id="locationCode"
-                    placeholder="เช่น 1AP_A10204"
-                    value={formData.locationCode}
-                    onChange={(e) =>
-                      setFormData({ ...formData, locationCode: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="zone">Zone (โซน)</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={fetchLocations} disabled={isLoading}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={handleDialogToggle}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="w-4 h-4" />
+                Add Location
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="capitalize">{modalTitle}</DialogTitle>
+                <DialogDescription>{modalDescription}</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="locationCode">Location Code</Label>
+                    <Input
+                      id="locationCode"
+                      placeholder="e.g. 1AP_A10204"
+                      value={formData.locationCode}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          locationCode: e.target.value.toUpperCase(),
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="zone">Zone</Label>
                     <Input
                       id="zone"
-                      placeholder="เช่น 1, 2, 3"
+                      placeholder="e.g. Zone A"
                       value={formData.zone}
                       onChange={(e) =>
-                        setFormData({ ...formData, zone: e.target.value })
+                        setFormData((prev) => ({ ...prev, zone: e.target.value }))
                       }
-                      required
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="area">Area (พื้นที่)</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="area">Area</Label>
                     <Input
                       id="area"
-                      placeholder="เช่น AP, AR, CR"
+                      placeholder="e.g. Area 12"
                       value={formData.area}
                       onChange={(e) =>
-                        setFormData({ ...formData, area: e.target.value })
+                        setFormData((prev) => ({ ...prev, area: e.target.value }))
                       }
-                      required
                     />
                   </div>
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="rack">Rack (ชั้นวาง)</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="rack">Rack</Label>
                     <Input
                       id="rack"
-                      placeholder="เช่น A102"
+                      placeholder="e.g. Rack B"
                       value={formData.rack}
                       onChange={(e) =>
-                        setFormData({ ...formData, rack: e.target.value })
+                        setFormData((prev) => ({ ...prev, rack: e.target.value }))
                       }
-                      required
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="level">Level (ระดับ)</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="level">Level</Label>
                     <Input
                       id="level"
-                      placeholder="เช่น 01, 02"
+                      placeholder="e.g. Level 3"
                       value={formData.level}
                       onChange={(e) =>
-                        setFormData({ ...formData, level: e.target.value })
+                        setFormData((prev) => ({ ...prev, level: e.target.value }))
                       }
-                      required
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="position">Position (ตำแหน่ง)</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="position">Position</Label>
                     <Input
                       id="position"
-                      placeholder="เช่น A, B"
+                      placeholder="Optional notes (e.g. aisle, bay)"
                       value={formData.position}
                       onChange={(e) =>
-                        setFormData({ ...formData, position: e.target.value })
+                        setFormData((prev) => ({ ...prev, position: e.target.value }))
                       }
-                      required
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Status</Label>
+                    <Select
+                      value={formData.isActive ? 'active' : 'inactive'}
+                      onValueChange={(value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          isActive: value === 'active',
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="status">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="status">สถานะ</Label>
-                  <Select
-                    value={formData.status}
-                    onValueChange={(value: Location['status']) =>
-                      setFormData({ ...formData, status: value })
-                    }
+                <DialogFooter className="flex flex-col-reverse md:flex-row md:justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsDialogOpen(false);
+                      resetForm();
+                    }}
+                    disabled={isSubmitting}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="เลือกสถานะ" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">ใช้งาน</SelectItem>
-                      <SelectItem value="inactive">ไม่ใช้งาน</SelectItem>
-                      <SelectItem value="maintenance">ซ่อมบำรุง</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsDialogOpen(false);
-                    resetForm();
-                  }}
-                >
-                  ยกเลิก
-                </Button>
-                <Button type="submit">
-                  {editingLocation ? 'อัปเดต' : 'เพิ่ม'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? 'Saving...' : submitLabel}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+            </Dialog>
+          </div>
+        </div>
 
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Search className="w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="ค้นหาด้วย Location Code, Zone หรือ Area..."
+              placeholder="Search by location code, zone, area, rack, or level"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
@@ -377,46 +547,57 @@ const LocationMaster = () => {
                   <TableHead>Rack</TableHead>
                   <TableHead>Level</TableHead>
                   <TableHead>Position</TableHead>
-                  <TableHead>สถานะ</TableHead>
-                  <TableHead className="text-right">จัดการ</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredLocations.length === 0 ? (
+                {isLoading ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      ไม่พบข้อมูล
+                      Loading locations...
+                    </TableCell>
+                  </TableRow>
+                ) : filteredLocations.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      No locations found for the current filters.
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredLocations.map((location) => (
                     <TableRow key={location.id}>
                       <TableCell className="font-mono font-medium">
-                        {location.locationCode}
+                        {location.location_code}
                       </TableCell>
-                      <TableCell>{location.zone}</TableCell>
-                      <TableCell>{location.area}</TableCell>
-                      <TableCell>{location.rack}</TableCell>
-                      <TableCell>{location.level}</TableCell>
-                      <TableCell>{location.position}</TableCell>
-                      <TableCell>{getStatusBadge(location.status)}</TableCell>
+                      <TableCell>{location.zone || '-'}</TableCell>
+                      <TableCell>{location.area || '-'}</TableCell>
+                      <TableCell>{location.rack || '-'}</TableCell>
+                      <TableCell>{location.level || '-'}</TableCell>
+                      <TableCell>{location.position || '-'}</TableCell>
+                      <TableCell>{getStatusBadge(location.is_active)}</TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEdit(location)}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(location.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                        {canManageLocations ? (
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(location)}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(location.id)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">View only</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
